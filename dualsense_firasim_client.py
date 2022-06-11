@@ -23,6 +23,11 @@ sock_send = socket.socket(socket.AF_INET, # Internet
 
 env = Environment()
 
+class Point(object):
+    def __init__(self, x = 0, y = 0):
+        self.x = x
+        self.y = y
+
 dualsense = pydualsense()
 dualsense.init()
 
@@ -64,17 +69,18 @@ def dualsense_control(robot_orientation, dualsense_x, dualsense_y):
     else:
         return 0, 0
 
-def dualsense_to_cmd(frame, robot_id, yellowteam, dualsense_x, dualsense_y, spin_left, spin_right):
+def dualsense_to_cmd(frame, robot_id, yellowteam, dualsense_x, dualsense_y, spin_kick):
     cmd = Command()
     cmd.id = robot_id
     cmd.yellowteam = yellowteam
-    if (spin_left):
-        cmd.wheel_left, cmd.wheel_right = -50, 50
-    elif (spin_right):
-        cmd.wheel_left, cmd.wheel_right = 50, -50
+
+    robot = frame.robots_yellow[robot_id] if yellowteam else frame.robots_blue[robot_id]
+    target = Point(-0.75, 0) if yellowteam else Point(0.75, 0)
+
+    if (spin_kick):
+        cmd.wheel_left, cmd.wheel_right = spin_kick_to_target(robot, frame.ball, target)
     else:
-        orientation = frame.robots_yellow[robot_id].orientation if yellowteam else frame.robots_blue[robot_id].orientation
-        cmd.wheel_left, cmd.wheel_right = dualsense_control(orientation, dualsense_x, dualsense_y)
+        cmd.wheel_left, cmd.wheel_right = dualsense_control(robot.orientation, dualsense_x, dualsense_y)
     return cmd
 
 def send_stop(packet, robot_id, yellowteam):
@@ -83,6 +89,15 @@ def send_stop(packet, robot_id, yellowteam):
     cmd.yellowteam = yellowteam
     cmd.wheel_left, cmd.wheel_right = 0, 0
     packet.cmd.robot_commands.append(cmd)
+
+def spin_kick_to_target(position, ball, target):
+    robot_to_ball = math.atan2(ball.y - position.y, ball.x - position.x)
+    ball_to_target = math.atan2(target.y - ball.y, target.x - ball.x)
+    angle = math.remainder(ball_to_target - robot_to_ball, 2 * math.pi)
+    if (angle > 0):
+        return -50, 50
+    else:
+        return 50, -50
 
 while True:
     data, addr = sock_receive.recvfrom(2048)
@@ -103,9 +118,9 @@ while True:
         right_id = third_robot_id
     else:
         send_stop(packet, third_robot_id, yellowteam)
-    cmd = dualsense_to_cmd(frame, left_id, yellowteam, dualsense.state.LX, -dualsense.state.LY, dualsense.state.square, dualsense.state.circle)
+    cmd = dualsense_to_cmd(frame, left_id, yellowteam, dualsense.state.LX, -dualsense.state.LY, dualsense.state.L2)
     packet.cmd.robot_commands.append(cmd)
-    cmd = dualsense_to_cmd(frame, right_id, yellowteam, dualsense.state.RX, -dualsense.state.RY, dualsense.state.DpadLeft, dualsense.state.DpadRight)
+    cmd = dualsense_to_cmd(frame, right_id, yellowteam, dualsense.state.RX, -dualsense.state.RY, dualsense.state.R2)
     packet.cmd.robot_commands.append(cmd)
         
     packet_bytes = packet.SerializeToString()
